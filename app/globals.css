@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * SME Copilot design tokens. See DESIGN.md at the repo root for the full rationale,
+ * type scale, and component conventions. Every variable here is consumed by
+ * tailwind.config.ts via hsl(var(--token)) — values are HSL triplets WITHOUT the
+ * hsl() wrapper (e.g. "192 84% 20%"), except --radius which is a plain length.
+ */
+
+:root {
+  /* Base neutrals — cool, slightly desaturated slate, not pure gray */
+  --background: 210 20% 98%;
+  --foreground: 215 28% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 215 28% 12%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 28% 12%;
+
+  /* Primary accent — deep teal. Distinct from the semantic "success" green on purpose. */
+  --primary: 192 84% 20%;
+  --primary-foreground: 210 40% 98%;
+
+  /* Secondary — quiet neutral button surface for secondary actions */
+  --secondary: 210 16% 93%;
+  --secondary-foreground: 215 28% 16%;
+
+  /* Muted — de-emphasized text/backgrounds (captions, disabled, subtle panels) */
+  --muted: 210 16% 93%;
+  --muted-foreground: 215 15% 40%;
+
+  /* Accent — shadcn convention: hover/highlight background for menu & list items,
+     NOT the brand color. Kept close to muted but a touch cooler. */
+  --accent: 205 25% 92%;
+  --accent-foreground: 215 28% 14%;
+
+  /* Semantic: financial positive / success */
+  --success: 142 71% 29%;
+  --success-foreground: 0 0% 100%;
+
+  /* Semantic: warning / attention needed */
+  --warning: 38 92% 40%;
+  --warning-foreground: 0 0% 100%;
+
+  /* Semantic: destructive / financial negative */
+  --destructive: 0 72% 42%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 210 16% 88%;
+  --input: 210 16% 85%;
+  --ring: 192 84% 20%;
+
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 215 28% 7%;
+  --foreground: 210 20% 96%;
+
+  --card: 215 25% 10%;
+  --card-foreground: 210 20% 96%;
+
+  --popover: 215 25% 10%;
+  --popover-foreground: 210 20% 96%;
+
+  --primary: 186 72% 45%;
+  --primary-foreground: 215 28% 8%;
+
+  --secondary: 215 20% 16%;
+  --secondary-foreground: 210 20% 92%;
+
+  --muted: 215 20% 16%;
+  --muted-foreground: 215 15% 65%;
+
+  --accent: 215 20% 18%;
+  --accent-foreground: 210 20% 94%;
+
+  --success: 142 60% 45%;
+  --success-foreground: 215 28% 8%;
+
+  --warning: 38 92% 55%;
+  --warning-foreground: 215 28% 8%;
+
+  --destructive: 0 72% 58%;
+  --destructive-foreground: 215 28% 8%;
+
+  --border: 215 20% 20%;
+  --input: 215 20% 22%;
+  --ring: 186 72% 45%;
+
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Accessible, visible focus ring for keyboard users, everywhere. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Use on every money/number cell app-wide so digits stay column-aligned. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
