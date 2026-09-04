@@ -63,6 +63,10 @@ export const COLLECTIONS = {
 
 async function ensureIndexes(db: Db): Promise<void> {
   const bId = { businessId: 1 } as const;
+  // `listDocs` (lib/repo.ts) defaults every unsorted list query to `sort: createdAt desc` — every
+  // collection listed through it needs a supporting index or Mongo sorts the whole result set in
+  // memory, which gets slower (and eventually hits Mongo's in-memory sort limit) as it grows.
+  const byCreatedAt = { businessId: 1, createdAt: 1 } as const;
   await Promise.all([
     db.collection(COLLECTIONS.businesses).createIndex({ _id: 1 }),
     db.collection(COLLECTIONS.users).createIndex(bId),
@@ -71,6 +75,7 @@ async function ensureIndexes(db: Db): Promise<void> {
     // across all businesses by email and verify the password hash for each match.
     db.collection(COLLECTIONS.users).createIndex({ email: 1 }),
     db.collection(COLLECTIONS.customers).createIndex(bId),
+    db.collection(COLLECTIONS.customers).createIndex(byCreatedAt),
     db.collection(COLLECTIONS.customers).createIndex(
       { businessId: 1, email: 1 },
       // MongoDB partial indexes only support $eq/$gt/$gte/$lt/$lte/$type/$exists — not $ne — so
@@ -78,6 +83,7 @@ async function ensureIndexes(db: Db): Promise<void> {
       { unique: true, partialFilterExpression: { email: { $exists: true, $gt: '' } } }
     ),
     db.collection(COLLECTIONS.products).createIndex(bId),
+    db.collection(COLLECTIONS.products).createIndex(byCreatedAt),
     db.collection(COLLECTIONS.products).createIndex({ businessId: 1, sku: 1 }, { unique: true }),
     db.collection(COLLECTIONS.inventory).createIndex(bId),
     db.collection(COLLECTIONS.inventory).createIndex(
@@ -86,25 +92,38 @@ async function ensureIndexes(db: Db): Promise<void> {
     ),
     db.collection(COLLECTIONS.stockMovements).createIndex(bId),
     db.collection(COLLECTIONS.stockMovements).createIndex({ businessId: 1, productId: 1 }),
+    db.collection(COLLECTIONS.stockMovements).createIndex({ businessId: 1, timestamp: 1 }),
     db.collection(COLLECTIONS.suppliers).createIndex(bId),
+    db.collection(COLLECTIONS.suppliers).createIndex(byCreatedAt),
     db.collection(COLLECTIONS.purchaseOrders).createIndex(bId),
+    db.collection(COLLECTIONS.purchaseOrders).createIndex(byCreatedAt),
     db.collection(COLLECTIONS.purchaseOrders).createIndex({ businessId: 1, status: 1 }),
+    db.collection(COLLECTIONS.purchaseOrders).createIndex({ businessId: 1, supplierId: 1 }),
     db.collection(COLLECTIONS.sales).createIndex(bId),
     db.collection(COLLECTIONS.sales).createIndex({ businessId: 1, status: 1 }),
     db.collection(COLLECTIONS.sales).createIndex({ businessId: 1, date: 1 }),
+    db.collection(COLLECTIONS.sales).createIndex({ businessId: 1, customerId: 1 }),
     db.collection(COLLECTIONS.invoices).createIndex(bId),
+    db.collection(COLLECTIONS.invoices).createIndex(byCreatedAt),
     db.collection(COLLECTIONS.invoices).createIndex({ businessId: 1, status: 1 }),
+    db.collection(COLLECTIONS.invoices).createIndex({ businessId: 1, customerId: 1 }),
+    db.collection(COLLECTIONS.invoices).createIndex({ businessId: 1, dueDate: 1 }),
     db.collection(COLLECTIONS.payments).createIndex(bId),
     db.collection(COLLECTIONS.payments).createIndex({ businessId: 1, date: 1 }),
+    db.collection(COLLECTIONS.payments).createIndex({ businessId: 1, customerId: 1 }),
     db.collection(COLLECTIONS.expenses).createIndex(bId),
     db.collection(COLLECTIONS.expenses).createIndex({ businessId: 1, date: 1 }),
     db.collection(COLLECTIONS.employees).createIndex(bId),
+    db.collection(COLLECTIONS.employees).createIndex(byCreatedAt),
     db.collection(COLLECTIONS.tasks).createIndex(bId),
+    db.collection(COLLECTIONS.tasks).createIndex(byCreatedAt),
     db.collection(COLLECTIONS.tasks).createIndex({ businessId: 1, status: 1 }),
     db.collection(COLLECTIONS.insights).createIndex(bId),
     db.collection(COLLECTIONS.auditLog).createIndex(bId),
+    db.collection(COLLECTIONS.auditLog).createIndex(byCreatedAt),
     db.collection(COLLECTIONS.counters).createIndex({ businessId: 1, name: 1 }, { unique: true }),
     db.collection(COLLECTIONS.generatedReports).createIndex(bId),
+    db.collection(COLLECTIONS.generatedReports).createIndex(byCreatedAt),
   ]);
 }
 

@@ -11,10 +11,22 @@ export const runtime = 'nodejs';
 export const GET = withErrorHandling(async (req: NextRequest) => {
   const session = await requireSession();
   const query = parseQuery(req.nextUrl.searchParams);
+
+  // Batch lookup by id (e.g. resolving names for a page of sales/invoices) — one request
+  // instead of one GET per row.
+  const idsParam = req.nextUrl.searchParams.get('ids');
+  const extraFilter: Record<string, unknown> = {};
+  if (idsParam) {
+    const ids = idsParam.split(',').filter(Boolean).slice(0, 100);
+    extraFilter._id = { $in: ids };
+  }
+
   const result = await listDocs<Customer>(COLLECTIONS.customers, {
     businessId: session.businessId,
     ...query,
+    ...(idsParam ? { page: 1, limit: 100 } : {}),
     searchFields: ['name', 'businessName', 'email'],
+    extraFilter,
   });
   return ok(result);
 });

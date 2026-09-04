@@ -120,25 +120,21 @@ export default function TasksPage() {
     setKanbanLoading(true);
     setKanbanError(null);
 
-    const base = new URLSearchParams({ limit: '100', sort: 'createdAt', order: 'asc' });
-    if (assigneeFilter === 'me' && me) base.set('assigneeId', me._id);
-    if (priorityFilter !== 'all') base.set('priority', priorityFilter);
+    // One request across all statuses (bucketed client-side) instead of one per column.
+    const params = new URLSearchParams({ limit: '400', sort: 'createdAt', order: 'asc' });
+    if (assigneeFilter === 'me' && me) params.set('assigneeId', me._id);
+    if (priorityFilter !== 'all') params.set('priority', priorityFilter);
 
-    Promise.all(
-      TASK_STATUSES.map(async (status) => {
-        const params = new URLSearchParams(base);
-        params.set('status', status);
-        const res = await fetch(`/api/tasks?${params.toString()}`);
+    fetch(`/api/tasks?${params.toString()}`)
+      .then(async (res) => {
         if (!res.ok) throw new Error('Could not load tasks.');
         return (await res.json()) as Paginated<Task>;
       })
-    )
-      .then((results) => {
+      .then((result) => {
         if (cancelled) return;
         const next = { ...EMPTY_COLUMNS };
-        TASK_STATUSES.forEach((status, i) => {
-          next[status] = results[i].data;
-        });
+        for (const status of TASK_STATUSES) next[status] = [];
+        for (const task of result.data) next[task.status].push(task);
         setColumns(next);
       })
       .catch((err) => {

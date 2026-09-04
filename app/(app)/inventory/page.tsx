@@ -139,19 +139,23 @@ export default function InventoryPage() {
     loadMovements();
   }, [loadMovements]);
 
-  // Resolve product names for the current page of movements (bounded to page size)
+  // Resolve product names for the current page of movements (bounded to page size) — one
+  // batched request instead of one GET per unique product.
   useEffect(() => {
     if (!movements) return;
     const missing = [...new Set(movements.data.map((m) => m.productId))].filter((id) => !productNameCache.current.has(id));
     if (missing.length === 0) return;
-    Promise.all(
-      missing.map((id) =>
-        fetch(`/api/products/${id}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((p) => productNameCache.current.set(id, p?.name ?? 'Unknown product'))
-          .catch(() => productNameCache.current.set(id, 'Unknown product'))
-      )
-    ).then(() => setProductNames(new Map(productNameCache.current)));
+    fetch(`/api/products?ids=${missing.map(encodeURIComponent).join(',')}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: Paginated<Product> | null) => {
+        const found = new Map((data?.data ?? []).map((p) => [p._id, p.name]));
+        for (const id of missing) productNameCache.current.set(id, found.get(id) ?? 'Unknown product');
+        setProductNames(new Map(productNameCache.current));
+      })
+      .catch(() => {
+        for (const id of missing) productNameCache.current.set(id, 'Unknown product');
+        setProductNames(new Map(productNameCache.current));
+      });
   }, [movements]);
 
   async function handleExecuteInsight(insight: Insight) {

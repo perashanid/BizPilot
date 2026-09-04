@@ -16,7 +16,7 @@ import { ErrorState } from '@/components/ui/error-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatMoney } from '@/lib/money';
-import type { Business, Paginated, Sale, SaleStatus, PaymentStatus } from '@/lib/types';
+import type { Business, Customer, Paginated, Sale, SaleStatus, PaymentStatus } from '@/lib/types';
 import { NewSaleDialog } from './_components/new-sale-dialog';
 
 const SALE_STATUS_BADGE: Record<SaleStatus, 'success' | 'secondary' | 'warning' | 'destructive' | 'outline'> = {
@@ -115,21 +115,25 @@ export default function SalesPage() {
     load();
   }, [load]);
 
-  // Resolve customer names for the current page of sales (bounded to page size)
+  // Resolve customer names for the current page of sales (bounded to page size) — one
+  // batched request instead of one GET per unique customer.
   useEffect(() => {
     if (!result) return;
     const missing = [...new Set(result.data.map((s) => s.customerId).filter((id): id is string => Boolean(id)))].filter(
       (id) => !customerCache.current.has(id)
     );
     if (missing.length === 0) return;
-    Promise.all(
-      missing.map((id) =>
-        fetch(`/api/customers/${id}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((c) => customerCache.current.set(id, c?.name ?? 'Customer'))
-          .catch(() => customerCache.current.set(id, 'Customer'))
-      )
-    ).then(() => setCustomerNames(new Map(customerCache.current)));
+    fetch(`/api/customers?ids=${missing.map(encodeURIComponent).join(',')}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: Paginated<Customer> | null) => {
+        const found = new Map((data?.data ?? []).map((c) => [c._id, c.name]));
+        for (const id of missing) customerCache.current.set(id, found.get(id) ?? 'Customer');
+        setCustomerNames(new Map(customerCache.current));
+      })
+      .catch(() => {
+        for (const id of missing) customerCache.current.set(id, 'Customer');
+        setCustomerNames(new Map(customerCache.current));
+      });
   }, [result]);
 
   const closeNewSale = (created: boolean) => {

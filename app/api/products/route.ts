@@ -17,9 +17,18 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (category) extraFilter.category = category;
   if (status) extraFilter.status = status;
 
+  // Batch lookup by id (e.g. resolving names for a page of stock movements) — one request
+  // instead of one GET per row.
+  const idsParam = req.nextUrl.searchParams.get('ids');
+  if (idsParam) {
+    const ids = idsParam.split(',').filter(Boolean).slice(0, 100);
+    extraFilter._id = { $in: ids };
+  }
+
   const result = await listDocs<Product>(COLLECTIONS.products, {
     businessId: session.businessId,
     ...query,
+    ...(idsParam ? { page: 1, limit: 100 } : {}),
     searchFields: ['name', 'sku', 'barcode', 'category'],
     extraFilter,
   });

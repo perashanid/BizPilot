@@ -6,6 +6,7 @@ import { col, COLLECTIONS } from '@/lib/db';
 import { recordAudit } from '@/lib/audit';
 import { createPurchaseOrder } from '@/lib/purchasing';
 import { sendInvoice } from '@/lib/invoicing';
+import { invalidateInsightsCache } from '@/lib/insights';
 import { zInsightActionInput, type Insight, type Product } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -14,6 +15,9 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
   const session = await requireSession();
   const input = await parseJson(req, zInsightActionInput);
   const before = await getDocOr404<Insight>(COLLECTIONS.insights, session.businessId, params.id, 'Insight');
+  // Every branch below mutates this insight; invalidate now so the next GET (any request after
+  // this one returns) doesn't serve a stale cached list for up to the cache's TTL.
+  invalidateInsightsCache(session.businessId);
 
   if (input.decision === 'dismiss') {
     const after = await updateDocById<Insight>(

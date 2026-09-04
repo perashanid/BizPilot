@@ -7,7 +7,6 @@ import { requireSession, canViewFinancials } from '@/lib/auth';
 import { getBusiness } from '@/lib/business';
 import {
   getProfitLoss,
-  getCurrentCashPosition,
   getReceivablesAging,
   getCashFlowProjection,
   getRevenueVsExpensesByPeriod,
@@ -78,7 +77,6 @@ async function DashboardContent({ searchParams }: DashboardPageProps) {
   const [
     current,
     prior,
-    cashPosition,
     receivables,
     inventoryStatus,
     cashFlowProjection,
@@ -89,7 +87,6 @@ async function DashboardContent({ searchParams }: DashboardPageProps) {
   ] = await Promise.all([
     getProfitLoss(session.businessId, { from, to }),
     getProfitLoss(session.businessId, { from: priorFrom, to: priorTo }),
-    getCurrentCashPosition(session.businessId),
     getReceivablesAging(session.businessId),
     getInventoryStatus(session.businessId),
     getCashFlowProjection(session.businessId),
@@ -101,6 +98,9 @@ async function DashboardContent({ searchParams }: DashboardPageProps) {
       return sales.find({ businessId: session.businessId }).sort({ date: -1 }).limit(5).toArray();
     })(),
   ]);
+  // getCashFlowProjection already computes current cash position internally and returns it —
+  // reuse that instead of running the same payments/expenses aggregations a second time.
+  const cashPosition = cashFlowProjection.currentCash;
 
   const customerIds = [...new Set(recentSales.map((s) => s.customerId).filter((id): id is string => Boolean(id)))];
   let customerNameMap = new Map<string, string>();

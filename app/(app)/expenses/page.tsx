@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { format } from 'date-fns';
 import { Plus, Search, Receipt, TrendingUp, TrendingDown } from 'lucide-react';
@@ -43,9 +43,14 @@ export default function ExpensesPage() {
   const debouncedSearch = useDebouncedValue(searchInput);
   const category = searchParams.get('category') ?? 'all';
   const page = Number(searchParams.get('page') ?? '1');
-  const fallback = defaultRange();
-  const from = searchParams.get('from') ?? fallback.from;
-  const to = searchParams.get('to') ?? fallback.to;
+  const { from, to } = useMemo(() => {
+    const fallback = defaultRange();
+    return {
+      from: searchParams.get('from') ?? fallback.from,
+      to: searchParams.get('to') ?? fallback.to,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const [result, setResult] = useState<Paginated<Expense> | null>(null);
   const [breakdown, setBreakdown] = useState<CategoryBreakdownRow[] | null>(null);

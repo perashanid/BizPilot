@@ -14,7 +14,7 @@ interface ComputedLine extends SaleLineItem {
 async function priceLineItems(
   businessId: string,
   lineItems: SaleLineItem[]
-): Promise<{ lines: ComputedLine[]; subtotal: number; taxTotal: number }> {
+): Promise<{ lines: ComputedLine[]; subtotal: number; taxTotal: number; productById: Map<string, Product> }> {
   const products = await col<Product>(COLLECTIONS.products);
   const ids = [...new Set(lineItems.map((l) => l.productId))];
   const found = await products.find({ businessId, _id: { $in: ids } }).toArray();
@@ -32,14 +32,14 @@ async function priceLineItems(
     return { ...line, lineTotal: lineSub + tax, unitCost: product.costPrice };
   });
 
-  return { lines, subtotal, taxTotal };
+  return { lines, subtotal, taxTotal, productById: byId };
 }
 
 export async function createSale(businessId: string, userId: string, input: SaleInput): Promise<Sale> {
   const business = await getBusiness(businessId);
   if (!business) throw new NotFoundError('Business not found.');
 
-  const { lines, subtotal, taxTotal } = await priceLineItems(businessId, input.lineItems);
+  const { lines, subtotal, taxTotal, productById } = await priceLineItems(businessId, input.lineItems);
   const orderSeq = await nextSequence(businessId, 'order');
   const now = new Date().toISOString();
 
@@ -64,9 +64,10 @@ export async function createSale(businessId: string, userId: string, input: Sale
   };
 
   // Decrement stock for every trackable line item. If any line fails (insufficient stock),
-  // nothing has been persisted yet, so we simply throw before the insert.
+  // nothing has been persisted yet, so we simply throw before the insert. `productById` was
+  // already fetched (in bulk) by priceLineItems above — reuse it instead of re-querying.
   for (const line of sale.lineItems) {
-    const product = await (await col<Product>(COLLECTIONS.products)).findOne({ _id: line.productId, businessId });
+    const product = productById.get(line.productId);
     if (product?.trackInventory) {
       await applyStockMovement({
         businessId,
@@ -89,8 +90,11 @@ export async function createSale(businessId: string, userId: string, input: Sale
 
 async function reverseStockForSale(businessId: string, userId: string, sale: Sale): Promise<void> {
   const products = await col<Product>(COLLECTIONS.products);
+  const ids = [...new Set(sale.lineItems.map((l) => l.productId))];
+  const found = await products.find({ businessId, _id: { $in: ids } }).toArray();
+  const byId = new Map(found.map((p) => [p._id, p]));
   for (const line of sale.lineItems) {
-    const product = await products.findOne({ _id: line.productId, businessId });
+    const product = byId.get(line.productId);
     if (product?.trackInventory) {
       await applyStockMovement({
         businessId,

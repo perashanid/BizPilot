@@ -1,7 +1,7 @@
 import { col, COLLECTIONS } from './db';
 import { newId } from './id';
 import { getCashFlowProjection } from './financials';
-import { getAvailableQuantity } from './inventory';
+import { listInventory } from './inventory';
 import { formatMoney } from './money';
 import { getBusiness } from './business';
 import type {
@@ -64,7 +64,14 @@ async function stockRules(businessId: string, business: Business): Promise<Candi
   if (trackable.length === 0) return [];
 
   const now = Date.now();
-  const last30 = await unitsAndRevenueByProduct(businessId, now - 30 * DAY, now);
+  const [last30, inventoryRecords] = await Promise.all([
+    unitsAndRevenueByProduct(businessId, now - 30 * DAY, now),
+    listInventory(businessId),
+  ]);
+  const availableByProduct = new Map<string, number>();
+  for (const rec of inventoryRecords) {
+    availableByProduct.set(rec.productId, (availableByProduct.get(rec.productId) ?? 0) + rec.available);
+  }
 
   const suppliers = await col<Supplier>(COLLECTIONS.suppliers);
   const allSuppliers = await suppliers.find({ businessId }).toArray();
@@ -86,7 +93,7 @@ async function stockRules(businessId: string, business: Business): Promise<Candi
 
   const candidates: Candidate[] = [];
   for (const product of trackable) {
-    const available = await getAvailableQuantity(businessId, product._id);
+    const available = availableByProduct.get(product._id) ?? 0;
     const velocity = (last30.get(product._id)?.units ?? 0) / 30;
     const supplier = supplierByProduct.get(product._id);
     const leadTime = supplier?.leadTimeDays ?? 7;
@@ -198,28 +205,36 @@ async function marginDropRule(businessId: string): Promise<Candidate[]> {
     unitsAndRevenueByProduct(businessId, now - 60 * DAY, now - 30 * DAY),
   ]);
   const products = await col<Product>(COLLECTIONS.products);
-  const candidates: Candidate[] = [];
-
-  for (const [productId, curr] of last30.entries()) {
+  const dropped = [...last30.entries()].filter(([productId, curr]) => {
     const prev = prev30.get(productId);
-    if (!prev || prev.units < 3 || curr.units < 3) continue;
+    if (!prev || prev.units < 3 || curr.units < 3) return false;
+    const currMargin = curr.revenue > 0 ? (curr.revenue - curr.cogs) / curr.revenue : 0;
+    const prevMargin = prev.revenue > 0 ? (prev.revenue - prev.cogs) / prev.revenue : 0;
+    return (prevMargin - currMargin) * 100 >= 8;
+  });
+  if (dropped.length === 0) return [];
+
+  const productDocs = await products.find({ _id: { $in: dropped.map(([productId]) => productId) }, businessId }).toArray();
+  const productMap = new Map(productDocs.map((p) => [p._id, p]));
+
+  const candidates: Candidate[] = [];
+  for (const [productId, curr] of dropped) {
+    const prev = prev30.get(productId)!;
     const currMargin = curr.revenue > 0 ? (curr.revenue - curr.cogs) / curr.revenue : 0;
     const prevMargin = prev.revenue > 0 ? (prev.revenue - prev.cogs) / prev.revenue : 0;
     const dropPts = (prevMargin - currMargin) * 100;
-    if (dropPts >= 8) {
-      const product = await products.findOne({ _id: productId, businessId });
-      const currUnitCost = curr.cogs / curr.units;
-      const prevUnitCost = prev.cogs / prev.units;
-      candidates.push({
-        type: 'margin_drop',
-        dedupeKey: productId,
-        severity: dropPts >= 15 ? 'critical' : 'warning',
-        title: `${product?.name ?? 'A product'}'s margin dropped ${dropPts.toFixed(1)} points`,
-        body: `Gross margin on ${product?.name ?? 'this product'} fell from ${(prevMargin * 100).toFixed(1)}% to ${(currMargin * 100).toFixed(1)}% over the last 30 days. Average unit cost rose from ${prevUnitCost.toFixed(0)} to ${currUnitCost.toFixed(0)} (in minor currency units) while the sale price held steady.`,
-        data: { productId, currMargin, prevMargin, currUnitCost, prevUnitCost },
-        suggestedAction: { type: 'review_pricing', label: 'Review pricing', payload: { productId } },
-      });
-    }
+    const product = productMap.get(productId);
+    const currUnitCost = curr.cogs / curr.units;
+    const prevUnitCost = prev.cogs / prev.units;
+    candidates.push({
+      type: 'margin_drop',
+      dedupeKey: productId,
+      severity: dropPts >= 15 ? 'critical' : 'warning',
+      title: `${product?.name ?? 'A product'}'s margin dropped ${dropPts.toFixed(1)} points`,
+      body: `Gross margin on ${product?.name ?? 'this product'} fell from ${(prevMargin * 100).toFixed(1)}% to ${(currMargin * 100).toFixed(1)}% over the last 30 days. Average unit cost rose from ${prevUnitCost.toFixed(0)} to ${currUnitCost.toFixed(0)} (in minor currency units) while the sale price held steady.`,
+      data: { productId, currMargin, prevMargin, currUnitCost, prevUnitCost },
+      suggestedAction: { type: 'review_pricing', label: 'Review pricing', payload: { productId } },
+    });
   }
   return candidates;
 }
@@ -271,10 +286,8 @@ async function quietCustomerRule(businessId: string): Promise<Candidate[]> {
     ])
     .toArray();
 
-  const customers = await col<Customer>(COLLECTIONS.customers);
-  const candidates: Candidate[] = [];
   const now = Date.now();
-
+  const quiet: Array<{ customerId: string; avgGap: number; sinceLast: number }> = [];
   for (const row of rows) {
     if (row.dates.length < 3) continue;
     const sorted = row.dates.map((d) => new Date(d).getTime()).sort((a, b) => a - b);
@@ -282,20 +295,29 @@ async function quietCustomerRule(businessId: string): Promise<Candidate[]> {
     const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
     const lastOrder = sorted[sorted.length - 1];
     const sinceLast = now - lastOrder;
+    if (sinceLast > avgGap * 2 && sinceLast > 30 * DAY) quiet.push({ customerId: row._id, avgGap, sinceLast });
+  }
+  if (quiet.length === 0) return [];
 
-    if (sinceLast > avgGap * 2 && sinceLast > 30 * DAY) {
-      const customer = await customers.findOne({ _id: row._id, businessId });
-      if (!customer || customer.status !== 'active') continue;
-      candidates.push({
-        type: 'quiet_customer',
-        dedupeKey: row._id,
-        severity: 'opportunity',
-        title: `${customer.name} has gone quiet`,
-        body: `${customer.name} used to order roughly every ${Math.round(avgGap / DAY)} days but hasn't ordered in ${Math.round(sinceLast / DAY)} days. Consider reaching out.`,
-        data: { customerId: row._id, avgGapDays: Math.round(avgGap / DAY), daysSinceLastOrder: Math.round(sinceLast / DAY) },
-        suggestedAction: { type: 'none', label: 'View customer' },
-      });
-    }
+  const customers = await col<Customer>(COLLECTIONS.customers);
+  const customerDocs = await customers
+    .find({ _id: { $in: quiet.map((q) => q.customerId) }, businessId, status: 'active' })
+    .toArray();
+  const customerMap = new Map(customerDocs.map((c) => [c._id, c]));
+
+  const candidates: Candidate[] = [];
+  for (const q of quiet) {
+    const customer = customerMap.get(q.customerId);
+    if (!customer) continue;
+    candidates.push({
+      type: 'quiet_customer',
+      dedupeKey: q.customerId,
+      severity: 'opportunity',
+      title: `${customer.name} has gone quiet`,
+      body: `${customer.name} used to order roughly every ${Math.round(q.avgGap / DAY)} days but hasn't ordered in ${Math.round(q.sinceLast / DAY)} days. Consider reaching out.`,
+      data: { customerId: q.customerId, avgGapDays: Math.round(q.avgGap / DAY), daysSinceLastOrder: Math.round(q.sinceLast / DAY) },
+      suggestedAction: { type: 'none', label: 'View customer' },
+    });
   }
   return candidates;
 }
@@ -313,23 +335,29 @@ async function lateSupplierRule(businessId: string): Promise<Candidate[]> {
     bySupplier.set(po.supplierId, entry);
   }
 
+  const late = [...bySupplier.entries()].filter(([, stats]) => {
+    if (stats.total < 3) return false;
+    return ((stats.total - stats.late) / stats.total) * 100 < 70;
+  });
+  if (late.length === 0) return [];
+
   const suppliers = await col<Supplier>(COLLECTIONS.suppliers);
+  const supplierDocs = await suppliers.find({ _id: { $in: late.map(([supplierId]) => supplierId) }, businessId }).toArray();
+  const supplierMap = new Map(supplierDocs.map((s) => [s._id, s]));
+
   const candidates: Candidate[] = [];
-  for (const [supplierId, stats] of bySupplier.entries()) {
-    if (stats.total < 3) continue;
+  for (const [supplierId, stats] of late) {
     const onTimeRate = ((stats.total - stats.late) / stats.total) * 100;
-    if (onTimeRate < 70) {
-      const supplier = await suppliers.findOne({ _id: supplierId, businessId });
-      candidates.push({
-        type: 'late_supplier',
-        dedupeKey: supplierId,
-        severity: onTimeRate < 50 ? 'warning' : 'opportunity',
-        title: `${supplier?.name ?? 'A supplier'} is often late`,
-        body: `${supplier?.name ?? 'This supplier'} delivered late on ${stats.late} of ${stats.total} recent orders (${onTimeRate.toFixed(0)}% on-time). Consider padding lead times or discussing this with them.`,
-        data: { supplierId, total: stats.total, late: stats.late, onTimeRate },
-        suggestedAction: { type: 'none', label: 'View supplier' },
-      });
-    }
+    const supplier = supplierMap.get(supplierId);
+    candidates.push({
+      type: 'late_supplier',
+      dedupeKey: supplierId,
+      severity: onTimeRate < 50 ? 'warning' : 'opportunity',
+      title: `${supplier?.name ?? 'A supplier'} is often late`,
+      body: `${supplier?.name ?? 'This supplier'} delivered late on ${stats.late} of ${stats.total} recent orders (${onTimeRate.toFixed(0)}% on-time). Consider padding lead times or discussing this with them.`,
+      data: { supplierId, total: stats.total, late: stats.late, onTimeRate },
+      suggestedAction: { type: 'none', label: 'View supplier' },
+    });
   }
   return candidates;
 }
@@ -353,8 +381,30 @@ export async function computeInsightCandidates(businessId: string): Promise<Cand
 
 const SEVERITY_RANK: Record<InsightSeverity, number> = { critical: 0, warning: 1, opportunity: 2 };
 
-/** Recomputes insights and upserts them, preserving user decisions (accepted/dismissed) on unchanged items. */
+const insightsCache = new Map<string, { value: Insight[]; expiresAt: number }>();
+const INSIGHTS_CACHE_TTL_MS = 60_000;
+
+export function invalidateInsightsCache(businessId: string): void {
+  insightsCache.delete(businessId);
+}
+
+/**
+ * Recomputes insights and upserts them, preserving user decisions (accepted/dismissed) on
+ * unchanged items. This is called on every dashboard/copilot/inventory page load, and the
+ * underlying computation runs several aggregations plus writes — short-lived per-business
+ * cache so a burst of page views doesn't recompute and re-persist on every single one.
+ * Call `invalidateInsightsCache` after any direct write to an insight (accept/dismiss/snooze)
+ * so the change is reflected immediately instead of waiting out the TTL.
+ */
 export async function refreshInsights(businessId: string): Promise<Insight[]> {
+  const cached = insightsCache.get(businessId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const result = await recomputeAndPersistInsights(businessId);
+  insightsCache.set(businessId, { value: result, expiresAt: Date.now() + INSIGHTS_CACHE_TTL_MS });
+  return result;
+}
+
+async function recomputeAndPersistInsights(businessId: string): Promise<Insight[]> {
   const candidates = await computeInsightCandidates(businessId);
   const insights = await col<Insight>(COLLECTIONS.insights);
   const now = new Date().toISOString();

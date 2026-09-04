@@ -16,12 +16,22 @@ function frequencyDays(freq?: Expense['recurrenceFrequency']): number {
   }
 }
 
+// Recurring occurrences land on day boundaries, so re-checking more than once a minute buys
+// nothing but extra Mongo round trips — this is called from every expenses/analytics/reports
+// read (3 separate endpoints), so a short per-business gate avoids redoing it on every request.
+const lastMaterializedAt = new Map<string, number>();
+const MATERIALIZE_GATE_MS = 60_000;
+
 /**
  * Generates any recurring-expense occurrences that have come due, on read — no cron job.
  * Idempotent under concurrent calls: each occurrence is only created if this call is the one
  * that atomically advances the parent's nextOccurrenceDate past it.
  */
 export async function materializeDueRecurringExpenses(businessId: string): Promise<void> {
+  const last = lastMaterializedAt.get(businessId);
+  if (last && Date.now() - last < MATERIALIZE_GATE_MS) return;
+  lastMaterializedAt.set(businessId, Date.now());
+
   const expenses = await col<Expense>(COLLECTIONS.expenses);
   const templates = await expenses.find({ businessId, recurring: true }).toArray();
   const now = Date.now();

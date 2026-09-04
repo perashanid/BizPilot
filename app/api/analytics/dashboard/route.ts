@@ -2,12 +2,7 @@ import { NextRequest } from 'next/server';
 import { requireSession, canViewFinancials } from '@/lib/auth';
 import { ok, withErrorHandling, ApiValidationError } from '@/lib/api-helpers';
 import { col, COLLECTIONS } from '@/lib/db';
-import {
-  getProfitLoss,
-  getCurrentCashPosition,
-  getReceivablesAging,
-  getCashFlowProjection,
-} from '@/lib/financials';
+import { getProfitLoss, getReceivablesAging, getCashFlowProjection } from '@/lib/financials';
 import type { Product } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -63,18 +58,19 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     return ok({ lowStockCount });
   }
 
-  const [current, prior, cashPosition, receivables, lowStockCount, cashFlowProjection] = await Promise.all([
+  const [current, prior, receivables, lowStockCount, cashFlowProjection] = await Promise.all([
     getProfitLoss(session.businessId, { from, to }),
     getProfitLoss(session.businessId, { from: priorFrom, to: priorTo }),
-    getCurrentCashPosition(session.businessId),
     getReceivablesAging(session.businessId),
     getLowStockCount(session.businessId),
     getCashFlowProjection(session.businessId),
   ]);
 
+  // getCashFlowProjection already computes current cash position internally and returns it —
+  // reuse that instead of running the same payments/expenses aggregations a second time.
   return ok({
     profitLoss: { current, prior },
-    cashPosition,
+    cashPosition: cashFlowProjection.currentCash,
     receivablesSummary: receivables.summary,
     lowStockCount,
     cashFlowProjection,
