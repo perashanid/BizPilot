@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
- * SME Copilot design tokens. See DESIGN.md at the repo root for the full rationale,
+ * BizPilot design tokens. See DESIGN.md at the repo root for the full rationale,
  * type scale, and component conventions. Every variable here is consumed by
  * tailwind.config.ts via hsl(var(--token)) — values are HSL triplets WITHOUT the
  * hsl() wrapper (e.g. "192 84% 20%"), except --radius which is a plain length.

@@ -1,4 +1,4 @@
-# SME Copilot
+# BizPilot
 
 ## Inspiration
 
@@ -8,7 +8,7 @@ I wanted to build **a single workspace that connects every dot** — where the s
 
 ## What it does
 
-**SME Copilot** is an AI-powered operating system for small and medium-sized businesses. It combines:
+**BizPilot** is an AI-powered operating system for small and medium-sized businesses. It combines:
 
 - **Sales, customers, products & inventory** — real-time stock tracking with automatic decrement/reversal on order confirm/cancel, weighted-average cost calculation, reorder-point alerts
 - **Suppliers & purchasing** — purchase orders with partial receiving and supplier performance tracking
@@ -58,7 +58,7 @@ The AI layer **connects the dots across modules**: it can trace a margin drop to
 - **Graceful degradation is a feature** — building the keyword fallback made the tool layer cleaner and the AI layer more testable
 - **Small businesses need connected data more than they need more features** — the insight that matters is "your margin dropped *because* your top supplier raised prices 8%" — and you can't get that from disconnected tools
 
-## What's next for SME Copilot
+## What's next for BizPilot
 
 - **Automated test suite** — currently verified through direct exercise
 - **Real email integration** — invoice sending, payment reminders, team invites

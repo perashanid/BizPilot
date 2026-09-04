@@ -216,7 +216,7 @@ export function Sidebar() {
         )}
       >
         <div className="flex h-14 items-center justify-between border-b border-border px-3">
-          {!collapsed && <span className="truncate font-display text-base font-semibold text-primary">SME Copilot</span>}
+          {!collapsed && <span className="truncate font-display text-base font-semibold text-primary">BizPilot</span>}
           <Button
             variant="ghost"
             size="icon"
@@ -247,7 +247,7 @@ export function Sidebar() {
           >
             <DialogPrimitive.Title className="sr-only">Navigation</DialogPrimitive.Title>
             <div className="flex h-14 items-center justify-between border-b border-border px-4">
-              <span className="font-display text-base font-semibold text-primary">SME Copilot</span>
+              <span className="font-display text-base font-semibold text-primary">BizPilot</span>
               <DialogPrimitive.Close
                 className="rounded-sm p-1 text-muted-foreground hover:text-foreground"
                 aria-label="Close menu"

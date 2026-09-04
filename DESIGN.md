@@ -1,4 +1,4 @@
-# SME Copilot — Design System
+# BizPilot — Design System
 
 Calm, dense, professional financial-operations aesthetic. Deliberately not a generic AI-SaaS
 template: no purple-to-blue gradients, no glassmorphism, no oversized hero sections, no

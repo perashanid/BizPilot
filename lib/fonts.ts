@@ -1,5 +1,5 @@
 /**
- * Font setup for SME Copilot.
+ * Font setup for BizPilot.
  *
  * Three deliberate choices, none of them Inter:
  *  - Public Sans (--font-sans)   UI text: nav, labels, buttons, body copy, table cells.

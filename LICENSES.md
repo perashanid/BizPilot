@@ -1,6 +1,6 @@
 # Third-party licenses
 
-SME Copilot is built with the open-source packages, fonts, and icon set below. This file lists
+BizPilot is built with the open-source packages, fonts, and icon set below. This file lists
 every runtime and build-time dependency declared in `package.json`, plus the fonts and icons used
 in the UI. License identifiers are the SPDX id used in each package's own `package.json`/license
 file at the time of writing — always verify against the installed version if this matters for a

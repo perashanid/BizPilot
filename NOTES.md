@@ -1,6 +1,6 @@
 # Architecture notes
 
-Working notes on how SME Copilot is put together, what was assumed where the spec was silent,
+Working notes on how BizPilot is put together, what was assumed where the spec was silent,
 what's known-incomplete, and how to click through the major features. Read `CONVENTIONS.md` first
 for the coding contract; this file is about *why*, not *how to write a route*.
 

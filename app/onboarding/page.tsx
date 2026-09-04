@@ -123,7 +123,7 @@ export default function OnboardingPage() {
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 py-12">
       <div className="mb-8 text-center">
-        <span className="font-display text-2xl font-semibold text-primary">SME Copilot</span>
+        <span className="font-display text-2xl font-semibold text-primary">BizPilot</span>
       </div>
 
       <div className="mb-6 space-y-2">

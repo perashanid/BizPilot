@@ -6,7 +6,7 @@ import { Toaster } from '@/components/ui/toaster';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'SME Copilot',
+  title: 'BizPilot',
   description: 'An AI-powered financial operations copilot for small and medium businesses.',
 };
 

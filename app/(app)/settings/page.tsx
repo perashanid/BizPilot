@@ -557,7 +557,7 @@ function BillingTab() {
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <p className="text-sm font-medium text-foreground">Billing management coming soon</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            This build doesn't include a payment processor integration (e.g. Stripe). SME Copilot is currently free to use.
+            This build doesn't include a payment processor integration (e.g. Stripe). BizPilot is currently free to use.
           </p>
         </div>
       </CardContent>
