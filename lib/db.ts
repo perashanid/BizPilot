@@ -25,13 +25,18 @@ function getClientPromise(): Promise<MongoClient> {
 export async function getDb(): Promise<Db> {
   const client = await getClientPromise();
   const db = client.db(process.env.MONGODB_DB || undefined);
+  // Kick off index creation in the background instead of blocking every request on it. On a
+  // serverless cold start this used to add the full round-trip cost of ~40 createIndex calls
+  // (createIndex is a no-op if the index already exists, but that's still a network round trip
+  // each) to the very first query of the invocation. Indexes only affect query *speed*, not
+  // correctness, so there's nothing unsafe about serving queries while this finishes.
   if (!global._mongoIndexesEnsured) {
     global._mongoIndexesEnsured = ensureIndexes(db).catch((err) => {
       global._mongoIndexesEnsured = undefined;
-      throw err;
+      // eslint-disable-next-line no-console
+      console.error('Failed to ensure indexes:', err);
     });
   }
-  await global._mongoIndexesEnsured;
   return db;
 }
 

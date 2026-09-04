@@ -28,28 +28,30 @@ export interface ProfitLoss {
 }
 
 export async function getProfitLoss(businessId: string, range: DateRange): Promise<ProfitLoss> {
-  const sales = await col<Sale>(COLLECTIONS.sales);
-  const [salesAgg] = await sales
-    .aggregate<{ revenue: number; cogs: number }>([
-      { $match: { businessId, status: { $in: REVENUE_SALE_STATUSES }, ...rangeFilter('date', range) } },
-      { $unwind: '$lineItems' },
-      {
-        $group: {
-          _id: null,
-          revenue: { $sum: '$lineItems.lineTotal' },
-          cogs: { $sum: { $multiply: ['$lineItems.qty', '$lineItems.unitCost'] } },
+  const [sales, expenses] = await Promise.all([col<Sale>(COLLECTIONS.sales), col<Expense>(COLLECTIONS.expenses)]);
+  // Independent aggregations against different collections — run together instead of one
+  // round trip after another.
+  const [[salesAgg], [expenseAgg]] = await Promise.all([
+    sales
+      .aggregate<{ revenue: number; cogs: number }>([
+        { $match: { businessId, status: { $in: REVENUE_SALE_STATUSES }, ...rangeFilter('date', range) } },
+        { $unwind: '$lineItems' },
+        {
+          $group: {
+            _id: null,
+            revenue: { $sum: '$lineItems.lineTotal' },
+            cogs: { $sum: { $multiply: ['$lineItems.qty', '$lineItems.unitCost'] } },
+          },
         },
-      },
-    ])
-    .toArray();
-
-  const expenses = await col<Expense>(COLLECTIONS.expenses);
-  const [expenseAgg] = await expenses
-    .aggregate<{ total: number }>([
-      { $match: { businessId, ...rangeFilter('date', range) } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ])
-    .toArray();
+      ])
+      .toArray(),
+    expenses
+      .aggregate<{ total: number }>([
+        { $match: { businessId, ...rangeFilter('date', range) } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ])
+      .toArray(),
+  ]);
 
   const revenue = salesAgg?.revenue ?? 0;
   const cogs = salesAgg?.cogs ?? 0;
@@ -81,31 +83,31 @@ export async function getRevenueVsExpensesByPeriod(
   granularity: 'day' | 'month' = 'month'
 ): Promise<PeriodPoint[]> {
   const dateFormat = granularity === 'day' ? '%Y-%m-%d' : '%Y-%m';
-  const sales = await col<Sale>(COLLECTIONS.sales);
-  const revenueByPeriod = await sales
-    .aggregate<{ _id: string; total: number }>([
-      { $match: { businessId, status: { $in: REVENUE_SALE_STATUSES }, ...rangeFilter('date', range) } },
-      {
-        $group: {
-          _id: { $dateToString: { format: dateFormat, date: { $toDate: '$date' } } },
-          total: { $sum: '$grandTotal' },
+  const [sales, expenses] = await Promise.all([col<Sale>(COLLECTIONS.sales), col<Expense>(COLLECTIONS.expenses)]);
+  const [revenueByPeriod, expensesByPeriod] = await Promise.all([
+    sales
+      .aggregate<{ _id: string; total: number }>([
+        { $match: { businessId, status: { $in: REVENUE_SALE_STATUSES }, ...rangeFilter('date', range) } },
+        {
+          $group: {
+            _id: { $dateToString: { format: dateFormat, date: { $toDate: '$date' } } },
+            total: { $sum: '$grandTotal' },
+          },
         },
-      },
-    ])
-    .toArray();
-
-  const expenses = await col<Expense>(COLLECTIONS.expenses);
-  const expensesByPeriod = await expenses
-    .aggregate<{ _id: string; total: number }>([
-      { $match: { businessId, ...rangeFilter('date', range) } },
-      {
-        $group: {
-          _id: { $dateToString: { format: dateFormat, date: { $toDate: '$date' } } },
-          total: { $sum: '$amount' },
+      ])
+      .toArray(),
+    expenses
+      .aggregate<{ _id: string; total: number }>([
+        { $match: { businessId, ...rangeFilter('date', range) } },
+        {
+          $group: {
+            _id: { $dateToString: { format: dateFormat, date: { $toDate: '$date' } } },
+            total: { $sum: '$amount' },
+          },
         },
-      },
-    ])
-    .toArray();
+      ])
+      .toArray(),
+  ]);
 
   const periods = new Map<string, { revenue: number; expenses: number }>();
   for (const r of revenueByPeriod) periods.set(r._id, { revenue: r.total, expenses: periods.get(r._id)?.expenses ?? 0 });
@@ -294,27 +296,27 @@ export async function getCashFlow(
   granularity: 'day' | 'month' = 'month'
 ): Promise<CashFlowPeriod[]> {
   const dateFormat = granularity === 'day' ? '%Y-%m-%d' : '%Y-%m';
-  const payments = await col<Payment>(COLLECTIONS.payments);
-  const paymentAgg = await payments
-    .aggregate<{ _id: string; direction: 'in' | 'out'; total: number }>([
-      { $match: { businessId, ...rangeFilter('date', range) } },
-      {
-        $group: {
-          _id: { period: { $dateToString: { format: dateFormat, date: { $toDate: '$date' } } }, direction: '$direction' },
-          total: { $sum: '$amount' },
+  const [payments, expenses] = await Promise.all([col<Payment>(COLLECTIONS.payments), col<Expense>(COLLECTIONS.expenses)]);
+  const [paymentAgg, expenseAgg] = await Promise.all([
+    payments
+      .aggregate<{ _id: string; direction: 'in' | 'out'; total: number }>([
+        { $match: { businessId, ...rangeFilter('date', range) } },
+        {
+          $group: {
+            _id: { period: { $dateToString: { format: dateFormat, date: { $toDate: '$date' } } }, direction: '$direction' },
+            total: { $sum: '$amount' },
+          },
         },
-      },
-      { $project: { _id: '$_id.period', direction: '$_id.direction', total: 1 } },
-    ])
-    .toArray();
-
-  const expenses = await col<Expense>(COLLECTIONS.expenses);
-  const expenseAgg = await expenses
-    .aggregate<{ _id: string; total: number }>([
-      { $match: { businessId, ...rangeFilter('date', range) } },
-      { $group: { _id: { $dateToString: { format: dateFormat, date: { $toDate: '$date' } } }, total: { $sum: '$amount' } } },
-    ])
-    .toArray();
+        { $project: { _id: '$_id.period', direction: '$_id.direction', total: 1 } },
+      ])
+      .toArray(),
+    expenses
+      .aggregate<{ _id: string; total: number }>([
+        { $match: { businessId, ...rangeFilter('date', range) } },
+        { $group: { _id: { $dateToString: { format: dateFormat, date: { $toDate: '$date' } } }, total: { $sum: '$amount' } } },
+      ])
+      .toArray(),
+  ]);
 
   const periods = new Map<string, CashFlowPeriod>();
   const get = (p: string) => {
@@ -335,22 +337,22 @@ export async function getCashFlow(
 }
 
 export async function getCurrentCashPosition(businessId: string): Promise<number> {
-  const payments = await col<Payment>(COLLECTIONS.payments);
-  const [agg] = await payments
-    .aggregate<{ inTotal: number; outTotal: number }>([
-      { $match: { businessId } },
-      {
-        $group: {
-          _id: null,
-          inTotal: { $sum: { $cond: [{ $eq: ['$direction', 'in'] }, '$amount', 0] } },
-          outTotal: { $sum: { $cond: [{ $eq: ['$direction', 'out'] }, '$amount', 0] } },
+  const [payments, expenses] = await Promise.all([col<Payment>(COLLECTIONS.payments), col<Expense>(COLLECTIONS.expenses)]);
+  const [[agg], [expAgg]] = await Promise.all([
+    payments
+      .aggregate<{ inTotal: number; outTotal: number }>([
+        { $match: { businessId } },
+        {
+          $group: {
+            _id: null,
+            inTotal: { $sum: { $cond: [{ $eq: ['$direction', 'in'] }, '$amount', 0] } },
+            outTotal: { $sum: { $cond: [{ $eq: ['$direction', 'out'] }, '$amount', 0] } },
+          },
         },
-      },
-    ])
-    .toArray();
-
-  const expenses = await col<Expense>(COLLECTIONS.expenses);
-  const [expAgg] = await expenses.aggregate<{ total: number }>([{ $match: { businessId } }, { $group: { _id: null, total: { $sum: '$amount' } } }]).toArray();
+      ])
+      .toArray(),
+    expenses.aggregate<{ total: number }>([{ $match: { businessId } }, { $group: { _id: null, total: { $sum: '$amount' } } }]).toArray(),
+  ]);
 
   return (agg?.inTotal ?? 0) - (agg?.outTotal ?? 0) - (expAgg?.total ?? 0);
 }
@@ -375,10 +377,18 @@ function collectionLikelihood(daysOverdue: number): number {
 }
 
 export async function getCashFlowProjection(businessId: string, horizonDays = 90): Promise<CashFlowProjection> {
-  const currentCash = await getCurrentCashPosition(businessId);
+  // These five reads are independent of each other — only the arithmetic below combines them —
+  // so run them together instead of chaining ~7 sequential round trips.
+  const threeMonthsAgo = new Date(Date.now() - 90 * 86400000).toISOString();
+  const [currentCash, openInvoices, openPOs, recurring, trailing] = await Promise.all([
+    getCurrentCashPosition(businessId),
+    col<Invoice>(COLLECTIONS.invoices).then((c) => c.find({ businessId, amountDue: { $gt: 0 }, status: { $ne: 'void' } }).toArray()),
+    col<PurchaseOrder>(COLLECTIONS.purchaseOrders).then((c) => c.find({ businessId, status: { $nin: ['cancelled'] } }).toArray()),
+    col<Expense>(COLLECTIONS.expenses).then((c) => c.find({ businessId, recurring: true }).toArray()),
+    // Trailing-3-month average burn from actual cash flow, used for the runway estimate.
+    getCashFlow(businessId, { from: threeMonthsAgo, to: new Date().toISOString() }, 'month'),
+  ]);
 
-  const invoices = await col<Invoice>(COLLECTIONS.invoices);
-  const openInvoices = await invoices.find({ businessId, amountDue: { $gt: 0 }, status: { $ne: 'void' } }).toArray();
   let expectedInflows = 0;
   let weightedExpectedInflows = 0;
   for (const inv of openInvoices) {
@@ -387,12 +397,8 @@ export async function getCashFlowProjection(businessId: string, horizonDays = 90
     weightedExpectedInflows += inv.amountDue * collectionLikelihood(daysOverdue);
   }
 
-  const pos = await col<PurchaseOrder>(COLLECTIONS.purchaseOrders);
-  const openPOs = await pos.find({ businessId, status: { $nin: ['cancelled'] } }).toArray();
   const poOutflow = openPOs.reduce((sum, po) => sum + Math.max(0, po.total - po.amountPaid), 0);
 
-  const expenses = await col<Expense>(COLLECTIONS.expenses);
-  const recurring = await expenses.find({ businessId, recurring: true }).toArray();
   const horizonEnd = Date.now() + horizonDays * 86400000;
   let recurringOutflow = 0;
   for (const exp of recurring) {
@@ -407,9 +413,6 @@ export async function getCashFlowProjection(businessId: string, horizonDays = 90
   const scheduledOutflows = poOutflow + recurringOutflow;
   const projectedCash = currentCash + weightedExpectedInflows - scheduledOutflows;
 
-  // Trailing-3-month average burn from actual cash flow, used for the runway estimate.
-  const threeMonthsAgo = new Date(Date.now() - 90 * 86400000).toISOString();
-  const trailing = await getCashFlow(businessId, { from: threeMonthsAgo, to: new Date().toISOString() }, 'month');
   const totalOut = trailing.reduce((s, p) => s + p.cashOut, 0);
   const totalIn = trailing.reduce((s, p) => s + p.cashIn, 0);
   const monthsCovered = Math.max(1, trailing.length);

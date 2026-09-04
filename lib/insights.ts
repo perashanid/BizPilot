@@ -59,27 +59,28 @@ async function unitsAndRevenueByProduct(
 // --- Rule 1 & 8: reorder point + about-to-stock-out ---------------------------------
 
 async function stockRules(businessId: string, business: Business): Promise<Candidate[]> {
-  const products = await col<Product>(COLLECTIONS.products);
-  const trackable = await products.find({ businessId, trackInventory: true, status: 'active' }).toArray();
-  if (trackable.length === 0) return [];
-
   const now = Date.now();
-  const [last30, inventoryRecords] = await Promise.all([
+  // None of these five reads depend on each other's result — run them together instead of
+  // chaining five sequential round trips.
+  const [trackable, last30, inventoryRecords, allSuppliers, openPOs] = await Promise.all([
+    col<Product>(COLLECTIONS.products).then((c) => c.find({ businessId, trackInventory: true, status: 'active' }).toArray()),
     unitsAndRevenueByProduct(businessId, now - 30 * DAY, now),
     listInventory(businessId),
+    col<Supplier>(COLLECTIONS.suppliers).then((c) => c.find({ businessId }).toArray()),
+    col<PurchaseOrder>(COLLECTIONS.purchaseOrders).then((c) =>
+      c.find({ businessId, status: { $in: ['draft', 'sent', 'partially_received'] } }).toArray()
+    ),
   ]);
+  if (trackable.length === 0) return [];
+
   const availableByProduct = new Map<string, number>();
   for (const rec of inventoryRecords) {
     availableByProduct.set(rec.productId, (availableByProduct.get(rec.productId) ?? 0) + rec.available);
   }
 
-  const suppliers = await col<Supplier>(COLLECTIONS.suppliers);
-  const allSuppliers = await suppliers.find({ businessId }).toArray();
   const supplierByProduct = new Map<string, Supplier>();
   for (const s of allSuppliers) for (const pid of s.productIds) if (!supplierByProduct.has(pid)) supplierByProduct.set(pid, s);
 
-  const pos = await col<PurchaseOrder>(COLLECTIONS.purchaseOrders);
-  const openPOs = await pos.find({ businessId, status: { $in: ['draft', 'sent', 'partially_received'] } }).toArray();
   const openPoDaysByProduct = new Map<string, number>();
   for (const po of openPOs) {
     if (!po.expectedDate) continue;
